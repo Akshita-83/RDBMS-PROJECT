@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: drone-delivery
+    runtime: docker
+    plan: free
+    envVars:
+      - key: DB_URL        # e.g. jdbc:mysql://HOST:PORT/DBNAME?sslMode=REQUIRED
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false

@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Drone Delivery Console</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚁</text></svg>">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#eef2f0;--panel:#fff;--ink:#14231f;--mute:#5d6e69;--line:#d5dedb;--brand:#0e5a52;--brand-ink:#fff;--sig:#f2b705;--ok:#1b7a43;--warn:#9a6a00;--bad:#b3261e}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#0e1a17;--panel:#15251f;--ink:#e7f0ed;--mute:#93a8a1;--line:#27403a;--brand:#46c2b2;--brand-ink:#06201c;--sig:#f2b705;--ok:#58d08a;--warn:#f2c14e;--bad:#ff8a80}}
+*{box-sizing:border-box}
+:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+#banner{margin-bottom:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}#banner[hidden]{display:none}#banner input{flex:1 1 220px}
+html,body{margin:0;height:100%}
+body{font-family:"Instrument Sans",system-ui,sans-serif;background:var(--bg);color:var(--ink);display:flex;font-size:15px}
+nav{width:210px;flex:none;background:var(--brand);color:var(--brand-ink);padding:20px 12px;display:flex;flex-direction:column;gap:2px}
+nav h1{font-size:18px;margin:0 8px 18px;line-height:1.2}
+nav h1 small{display:block;font-weight:400;opacity:.75;font-size:12px;margin-top:2px}
+nav button{all:unset;cursor:pointer;padding:9px 12px;border-radius:8px;font-weight:500}
+nav button:hover{background:rgba(255,255,255,.14)}
+nav button[aria-current=true]{background:var(--sig);color:#1c1500;font-weight:600}
+nav button:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--sig);outline-offset:2px}
+main{flex:1;min-width:0;padding:24px 28px;overflow:auto}
+h2{margin:0 0 16px;font-size:24px}
+.row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
+.table-wrap{flex:1 1 560px;min-width:0;overflow-x:auto;padding:0}
+table{border-collapse:collapse;width:100%}
+th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-weight:600;color:var(--mute);font-size:13px}
+tr:last-child td{border-bottom:0}
+.empty{padding:28px;color:var(--mute)}
+form{flex:0 0 280px;display:flex;flex-direction:column;gap:10px}
+form h3{margin:0 0 4px;font-size:16px}
+label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--mute)}
+input,select{font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)}
+button.go{font:inherit;font-weight:600;padding:10px;border:0;border-radius:8px;background:var(--brand);color:var(--brand-ink);cursor:pointer}
+button.sm{font:inherit;font-size:13px;padding:4px 10px;border:1px solid var(--line);border-radius:6px;background:none;color:var(--ink);cursor:pointer}
+.badge{padding:2px 9px;border-radius:99px;font-size:12px;font-weight:600;background:var(--bg);border:1px solid var(--line)}
+.b-ok{color:var(--ok)}.b-warn{color:var(--warn)}.b-bad{color:var(--bad)}
+.stats{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px}
+.stat{flex:1 1 170px}.stat b{display:block;font-size:30px;margin-top:4px}.stat span{color:var(--mute);font-size:13px}
+#toast{position:fixed;right:20px;bottom:20px;padding:12px 16px;border-radius:8px;background:var(--ink);color:var(--bg);display:none;max-width:340px}
+#toast.err{background:var(--bad);color:#fff}
+dialog{border:1px solid var(--line);border-radius:12px;background:var(--panel);color:var(--ink);min-width:min(460px,92vw)}
+dialog::backdrop{background:rgba(0,0,0,.45)}
+@media(max-width:760px){body{flex-direction:column}nav{width:auto;flex-direction:row;flex-wrap:wrap;padding:10px}nav h1{width:100%;margin:0 4px 6px}main{padding:16px}form{flex:1 1 100%}}
+</style>
+</head>
+<body>
+<nav id="nav"><h1>Drone Delivery<small>Operations console</small></h1></nav>
+<main><div id="banner" class="panel" hidden><span><b>Demo mode.</b> The Java backend was not reachable, so this page uses sample data kept in this tab. To use your database, start the backend and connect:</span><input id="apiurl" aria-label="API address"><button class="go" id="conn">Connect</button></div><h2 id="title"></h2><div id="view"></div></main>
+<div id="toast" role="status"></div>
+<dialog id="dlg"></dialog>
+<script>
+let API = new URLSearchParams(location.search).get('api') || '/api';
+let demo = false, cur = 'overview';
+const $ = s => document.querySelector(s);
+const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money = v => '₹' + Number(v).toLocaleString('en-IN');
+
+const V = {
+  overview: { title: 'Overview' },
+  orders: { title: 'Orders', id: 'order_id', statuses: ['Placed','Assigned','In Transit','Delivered','Cancelled'], statusCol: 'status',
+    cols: [['order_id','#'],['customer_name','Customer'],['pickup_address','Pickup'],['delivery_address','Deliver to'],['delivery_charge','Charge','money'],['package_count','Packages','pk'],['payment_status','Payment','badge'],['status','Status','status']],
+    form: [['customer_id','Customer','customers:customer_id:name'],['pickup_address','Pickup address'],['delivery_address','Delivery address'],['delivery_charge','Charge (₹)','number']], add: 'Create order' },
+  customers: { title: 'Customers', cols: [['customer_id','#'],['name','Name'],['phone','Phone'],['email','Email'],['address','City']],
+    form: [['name','Name'],['phone','Phone'],['email','Email','email'],['address','City']], add: 'Add customer' },
+  drones: { title: 'Drones', id: 'drone_id', statuses: ['Available','In Use','Maintenance'], statusCol: 'status',
+    cols: [['drone_id','#'],['model','Model'],['payload_capacity','Payload (kg)'],['status','Status','status']],
+    form: [['model','Model'],['payload_capacity','Payload (kg)','number'],['status','Status','=Available,In Use,Maintenance']], add: 'Add drone' },
+  pilots: { title: 'Pilots', cols: [['pilot_id','#'],['name','Name'],['phone','Phone'],['certification_expiry','Certified until'],['certified','Certification','cert']],
+    form: [['name','Name'],['phone','Phone'],['certification_expiry','Certified until','date']], add: 'Add pilot' },
+  payments: { title: 'Payments', id: 'payment_id', statuses: ['Pending','Paid','Failed','Refunded'], statusCol: 'payment_status',
+    cols: [['payment_id','#'],['order_id','Order'],['customer_name','Customer'],['amount','Amount','money'],['payment_method','Method'],['payment_status','Status','status']],
+    form: [['order_id','Order','orders:order_id:order_id'],['amount','Amount (₹)','number'],['payment_method','Method','=UPI,Card,Cash,Net banking']], add: 'Record payment' },
+  assignments: { title: 'Assignments', id: 'assignment_id', statuses: ['Assigned','In Transit','Completed','Cancelled'], statusCol: 'status',
+    cols: [['assignment_id','#'],['order_id','Order'],['drone_model','Drone'],['pilot_name','Pilot'],['status','Status','status']],
+    form: [['order_id','Order','orders:order_id:order_id'],['drone_id','Drone','drones:drone_id:model'],['pilot_id','Pilot','pilots:pilot_id:name']], add: 'Assign drone and pilot' },
+  maintenance: { title: 'Maintenance', cols: [['maintenance_id','#'],['drone_model','Drone'],['service_date','Date'],['description','Work done'],['cost','Cost','money']],
+    form: [['drone_id','Drone','drones:drone_id:model'],['service_date','Service date','date'],['description','Work done'],['cost','Cost (₹)','number']], add: 'Log service' }
+};
+
+async function api(path, method = 'GET', body) {
+  if (!demo) {
+    let r;
+    try { r = await fetch(API + path, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined }); }
+    catch { demo = true; $('#banner').hidden = false; }
+    if (!demo) {
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || 'Request failed (' + r.status + ')');
+      return d;
+    }
+  }
+  return mock(path, method, body || {});
+}
+const T = new Date().toISOString().slice(0, 10), DS = ['Available','In Use','Maintenance'], PS = ['Pending','Paid','Failed','Refunded'];
+const D = {
+  customers: [[1,'Aarav Sharma','9876500001','aarav@example.com','Jaipur'],[2,'Diya Verma','9876500002','diya@example.com','Ajmer'],[3,'Rohan Gupta','9876500003','rohan@example.com','Delhi']].map(([customer_id,name,phone,email,address]) => ({customer_id,name,phone,email,address})),
+  drones: [[1,'Delivery-X1',5,'Available'],[2,'Delivery-X2',3,'Available'],[3,'Delivery-X3',8,'Maintenance']].map(([drone_id,model,payload_capacity,status]) => ({drone_id,model,payload_capacity,status})),
+  pilots: [[1,'Karan Mehta','9876500004','2027-12-31'],[2,'Ananya Singh','9876500005','2027-06-30'],[3,'Vikram Rao','9876500006','2028-03-31']].map(([pilot_id,name,phone,certification_expiry]) => ({pilot_id,name,phone,certification_expiry})),
+  orders: [[1,1,'Warehouse A','Malviya Nagar, Jaipur',250],[2,2,'Warehouse B','Civil Lines, Ajmer',400],[3,1,'Warehouse A','Vaishali Nagar, Jaipur',300],[4,3,'Warehouse C','Connaught Place, Delhi',500]].map(([order_id,customer_id,pickup_address,delivery_address,delivery_charge]) => ({order_id,customer_id,pickup_address,delivery_address,delivery_charge,status:order_id===1?'Delivered':'Placed'})),
+  packages: [[1,1,'Documents',1.5],[1,2,'Small parcel',1],[2,1,'Electronics',2],[3,1,'Books',1.2],[4,1,'Medical supplies',3.5]].map(([order_id,package_no,description,weight_kg]) => ({order_id,package_no,description,weight_kg})),
+  payments: [[1,1,250,'UPI','Paid'],[2,3,300,'UPI','Paid'],[3,2,400,'Card','Pending'],[4,4,500,'Card','Pending']].map(([payment_id,order_id,amount,payment_method,payment_status]) => ({payment_id,order_id,amount,payment_method,payment_status})),
+  assignments: [{assignment_id:1,order_id:1,drone_id:1,pilot_id:1,status:'Assigned'}],
+  maintenance: [{maintenance_id:1,drone_id:3,service_date:'2026-10-15',description:'Battery replacement',cost:3500}]
+};
+try { const s = localStorage.getItem('drone_demo_v1'); if (s) Object.assign(D, JSON.parse(s)); } catch {}
+function mock(path, m, b) {
+  const r = mock0(path, m, b);
+  try { localStorage.setItem('drone_demo_v1', JSON.stringify(D)); } catch {}
+  return r;
+}
+function mock0(path, m, b) {
+  const [p, qs = ''] = path.split('?'), [, res, id, sub] = p.split('/'), n = Number(id), post = m === 'POST', put = m === 'PUT' && sub === 'status';
+  const need = k => { if (b[k] == null || String(b[k]).trim() === '') throw new Error('Missing field: ' + k); return String(b[k]).trim(); };
+  const opt = k => (b[k] == null || String(b[k]).trim() === '') ? null : String(b[k]).trim();
+  const num = k => { const v = Number(need(k)); if (isNaN(v)) throw new Error('Invalid number: ' + k); return v; };
+  const get = (t, k, v, l) => { const r = D[t].find(x => x[k] == v); if (!r) throw new Error(l + ' ' + v + ' not found'); return r; };
+  const add = (t, k, o) => { const r = { [k]: Math.max(0, ...D[t].map(x => x[k])) + 1, ...o }; D[t].push(r); return r; };
+  const oneOf = (v, a) => { if (!a.includes(v)) throw new Error('Status must be one of ' + a.join(', ')); };
+  const setStatus = (t, k, l, col, a) => { const st = need('status'); oneOf(st, a); const r = get(t, k, n, l); r[col] = st; return r; };
+  switch (res) {
+    case 'customers':
+      if (post) { const phone = need('phone'); if (D.customers.some(c => c.phone === phone)) throw new Error("Conflict: Duplicate entry '" + phone + "' for key 'phone'"); return add('customers', 'customer_id', { name: need('name'), phone, email: opt('email'), address: opt('address') }); }
+      return D.customers;
+    case 'drones':
+      if (post) { const st = opt('status') || 'Available'; oneOf(st, DS); return add('drones', 'drone_id', { model: need('model'), payload_capacity: num('payload_capacity'), status: st }); }
+      if (put) return setStatus('drones', 'drone_id', 'Drone', 'status', DS);
+      return D.drones;
+    case 'pilots':
+      if (post) return add('pilots', 'pilot_id', { name: need('name'), phone: need('phone'), certification_expiry: need('certification_expiry') });
+      return D.pilots.map(x => ({ ...x, certified: x.certification_expiry >= T ? 1 : 0 }));
+    case 'orders':
+      if (sub === 'packages') {
+        get('orders', 'order_id', n, 'DeliveryOrder');
+        if (post) { const r = { order_id: n, package_no: Math.max(0, ...D.packages.filter(x => x.order_id == n).map(x => x.package_no)) + 1, description: opt('description'), weight_kg: num('weight_kg') }; D.packages.push(r); return r; }
+        return D.packages.filter(x => x.order_id == n);
+      }
+      if (put) return setStatus('orders', 'order_id', 'DeliveryOrder', 'status', ['Placed','Assigned','In Transit','Delivered','Cancelled']);
+      if (post) { get('customers', 'customer_id', need('customer_id'), 'Customer'); return add('orders', 'order_id', { customer_id: Number(b.customer_id), pickup_address: need('pickup_address'), delivery_address: need('delivery_address'), delivery_charge: num('delivery_charge'), status: 'Placed' }); }
+      return D.orders.map(o => ({ ...o, customer_name: get('customers', 'customer_id', o.customer_id, 'Customer').name, package_count: D.packages.filter(x => x.order_id == o.order_id).length, payment_status: (D.payments.find(x => x.order_id == o.order_id) || {}).payment_status ?? null }));
+    case 'packages': { const min = Number(new URLSearchParams(qs).get('min_weight') || 0); return D.packages.filter(x => x.weight_kg > min); }
+    case 'payments':
+      if (post) { const oid = Number(need('order_id')); get('orders', 'order_id', oid, 'DeliveryOrder'); if (D.payments.some(x => x.order_id == oid)) throw new Error('This order already has a payment'); const st = opt('payment_status') || 'Pending'; oneOf(st, PS); return add('payments', 'payment_id', { order_id: oid, amount: num('amount'), payment_method: need('payment_method'), payment_status: st }); }
+      if (put) return setStatus('payments', 'payment_id', 'Payment', 'payment_status', PS);
+      return D.payments.map(x => ({ ...x, customer_name: get('customers', 'customer_id', get('orders', 'order_id', x.order_id, 'Order').customer_id, 'Customer').name }));
+    case 'assignments':
+      if (post) {
+        const oid = Number(need('order_id')), dr = get('drones', 'drone_id', need('drone_id'), 'Drone'), pl = get('pilots', 'pilot_id', need('pilot_id'), 'Pilot');
+        get('orders', 'order_id', oid, 'DeliveryOrder');
+        if (dr.status !== 'Available') throw new Error('Drone is not available (' + dr.status + ')');
+        if (pl.certification_expiry < T) throw new Error('Pilot certification has expired');
+        if (D.assignments.some(a => a.order_id == oid && ['Assigned','In Transit'].includes(a.status))) throw new Error('Order already has an active assignment');
+        return add('assignments', 'assignment_id', { order_id: oid, drone_id: dr.drone_id, pilot_id: pl.pilot_id, status: 'Assigned' });
+      }
+      if (put) return setStatus('assignments', 'assignment_id', 'DeliveryAssignment', 'status', ['Assigned','In Transit','Completed','Cancelled']);
+      return D.assignments.map(a => ({ assignment_id: a.assignment_id, order_id: a.order_id, drone_model: get('drones', 'drone_id', a.drone_id, 'Drone').model, pilot_name: get('pilots', 'pilot_id', a.pilot_id, 'Pilot').name, status: a.status }));
+    case 'maintenance':
+      if (post) { const d = get('drones', 'drone_id', need('drone_id'), 'Drone'); return add('maintenance', 'maintenance_id', { drone_id: d.drone_id, service_date: need('service_date'), description: opt('description'), cost: opt('cost') == null ? null : num('cost') }); }
+      return [...D.maintenance].sort((a, c) => c.service_date.localeCompare(a.service_date) || c.maintenance_id - a.maintenance_id).map(x => ({ ...x, drone_model: get('drones', 'drone_id', x.drone_id, 'Drone').model }));
+    case 'stats': {
+      const avg = D.drones.reduce((s, x) => s + x.payload_capacity, 0) / D.drones.length, ids = [...new Set(D.packages.map(x => x.order_id))];
+      return { total_revenue: D.payments.filter(x => x.payment_status === 'Paid').reduce((s, x) => s + x.amount, 0), total_orders: D.orders.length, available_drones: D.drones.filter(x => x.status === 'Available').length,
+        orders_per_customer: D.customers.map(c => ({ name: c.name, total_orders: D.orders.filter(o => o.customer_id === c.customer_id).length })),
+        avg_weight_per_order: ids.map(o => { const w = D.packages.filter(x => x.order_id === o); return { order_id: o, average_weight: w.reduce((s, x) => s + x.weight_kg, 0) / w.length }; }),
+        drones_above_avg_payload: D.drones.filter(x => x.payload_capacity > avg) };
+    }
+  }
+  throw new Error('No such endpoint: ' + m + ' ' + p);
+}
+$('#apiurl').value = API;
+$('#conn').onclick = async () => {
+  const u = $('#apiurl').value.trim().replace(/\/$/, '');
+  try { const r = await fetch(u + '/stats'); if (!r.ok) throw 0; API = u; demo = false; $('#banner').hidden = true; toast('Connected to ' + u); render(cur); }
+  catch { toast('Could not reach ' + u + '. Check that the backend is running.', true); }
+};
+if (demo) $('#banner').hidden = false;
+let tt; function toast(msg, err) { const t = $('#toast'); t.textContent = msg; t.className = err ? 'err' : ''; t.style.display = 'block'; clearTimeout(tt); tt = setTimeout(() => t.style.display = 'none', 4000); }
+const tone = v => ({Paid:'ok',Available:'ok',Delivered:'ok',Completed:'ok','In Use':'warn','In Transit':'warn',Pending:'warn',Assigned:'warn',Placed:'warn',Maintenance:'bad',Failed:'bad',Cancelled:'bad',Refunded:'bad'}[v] || '');
+
+function cell(col, row, cfg) {
+  const [k, , t] = col, v = row[k];
+  if (t === 'money') return money(v);
+  if (t === 'cert') return `<span class="badge ${v ? 'b-ok' : 'b-bad'}">${v ? 'Valid' : 'Expired'}</span>`;
+  if (t === 'badge') return v ? `<span class="badge b-${tone(v)}">${esc(v)}</span>` : '<span class="badge">None</span>';
+  if (t === 'pk') return `${esc(v)} <button class="sm" data-pk="${row.order_id}">View</button>`;
+  if (t === 'status' && cfg.statuses)
+    return `<select data-st="${row[cfg.id]}" aria-label="Change status">${cfg.statuses.map(s => `<option ${s === v ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select>`;
+  if (t === 'status') return `<span class="badge b-${tone(v)}">${esc(v)}</span>`;
+  return esc(v);
+}
+
+async function render(name) {
+  cur = name; const cfg = V[name]; $('#title').textContent = cfg.title;
+  document.querySelectorAll('nav button').forEach(b => b.setAttribute('aria-current', b.dataset.v === name));
+  const view = $('#view');
+  try {
+    if (name === 'overview') return await overview(view);
+    const rows = await api('/' + name);
+    const table = rows.length
+      ? `<table><thead><tr>${cfg.cols.map(c => `<th>${esc(c[1])}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr>${cfg.cols.map(c => `<td>${cell(c, r, cfg)}</td>`).join('')}</tr>`).join('')}</tbody></table>`
+      : `<div class="empty">Nothing here yet. Use the form to add the first one.</div>`;
+    const fields = await Promise.all(cfg.form.map(async ([k, label, t]) => {
+      if (t && t.startsWith('=')) return `<label>${esc(label)}<select name="${k}">${t.slice(1).split(',').map(o => `<option>${esc(o)}</option>`).join('')}</select></label>`;
+      if (t && t.includes(':')) {
+        const [res, val, txt] = t.split(':'); const list = await api('/' + res);
+        return `<label>${esc(label)}<select name="${k}" required>${list.map(o => `<option value="${esc(o[val])}">${esc(res === 'orders' ? '#' + o.order_id + ' · ' + o.customer_name : o[txt])}</option>`).join('')}</select></label>`;
+      }
+      return `<label>${esc(label)}<input name="${k}" type="${t || 'text'}" ${t === 'number' ? 'step="any" min="0"' : ''} required></label>`;
+    }));
+    view.innerHTML = `<div class="row"><div class="panel table-wrap">${table}</div><form class="panel" id="f"><h3>${esc(cfg.add)}</h3>${fields.join('')}<button class="go">${esc(cfg.add)}</button></form></div>`;
+    $('#f').onsubmit = async e => {
+      e.preventDefault();
+      const body = Object.fromEntries(new FormData(e.target));
+      try { await api('/' + name, 'POST', body); toast('Saved: ' + cfg.add.toLowerCase()); render(name); } catch (x) { toast(x.message, true); }
+    };
+    view.querySelectorAll('select[data-st]').forEach(s => s.onchange = async () => {
+      try { await api(`/${name}/${s.dataset.st}/status`, 'PUT', { status: s.value }); toast('Status updated to ' + s.value); render(name); } catch (x) { toast(x.message, true); render(name); }
+    });
+    view.querySelectorAll('[data-pk]').forEach(b => b.onclick = () => packages(b.dataset.pk));
+  } catch (x) { view.innerHTML = `<div class="panel empty" style="color:var(--bad)">${esc(x.message)}</div>`; }
+}
+
+async function overview(view) {
+  const s = await api('/stats');
+  view.innerHTML = `<div class="stats">
+    <div class="panel stat"><span>Revenue collected</span><b>${money(s.total_revenue)}</b></div>
+    <div class="panel stat"><span>Total orders</span><b>${s.total_orders}</b></div>
+    <div class="panel stat"><span>Drones available</span><b>${s.available_drones}</b></div></div>
+    <div class="row">
+    <div class="panel table-wrap"><table><thead><tr><th>Customer</th><th>Orders</th></tr></thead><tbody>${s.orders_per_customer.map(r => `<tr><td>${esc(r.name)}</td><td>${r.total_orders}</td></tr>`).join('')}</tbody></table></div>
+    <div class="panel table-wrap"><table><thead><tr><th>Drones above average payload</th><th>Payload (kg)</th></tr></thead><tbody>${s.drones_above_avg_payload.map(r => `<tr><td>${esc(r.model)}</td><td>${r.payload_capacity}</td></tr>`).join('') || '<tr><td colspan="2">None</td></tr>'}</tbody></table></div></div>`;
+}
+
+async function packages(oid) {
+  const d = $('#dlg');
+  const draw = async () => {
+    const p = await api(`/orders/${oid}/packages`);
+    d.innerHTML = `<h3>Order #${esc(oid)} packages</h3>
+      ${p.length ? `<table><tbody>${p.map(x => `<tr><td>${x.package_no}</td><td>${esc(x.description)}</td><td>${x.weight_kg} kg</td></tr>`).join('')}</tbody></table>` : '<p class="empty">No packages yet.</p>'}
+      <form id="pf" style="flex:none"><label>Description<input name="description" required></label><label>Weight (kg)<input name="weight_kg" type="number" step="any" min="0" required></label>
+      <button class="go">Add package</button><button type="button" class="sm" id="cl">Close</button></form>`;
+    $('#cl').onclick = () => { d.close(); render('orders'); };
+    $('#pf').onsubmit = async e => { e.preventDefault(); try { await api(`/orders/${oid}/packages`, 'POST', Object.fromEntries(new FormData(e.target))); toast('Package added'); draw(); } catch (x) { toast(x.message, true); } };
+  };
+  try { await draw(); d.showModal(); } catch (x) { toast(x.message, true); }
+}
+
+Object.keys(V).forEach(k => {
+  const b = document.createElement('button'); b.textContent = V[k].title; b.dataset.v = k; b.onclick = () => render(k); $('#nav').append(b);
+});
+render('overview');
+</script>
+</body>
+</html>
